@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Maaltijdplanner</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,900;1,9..144,500&family=Hanken+Grotesk:wght@400;500;600;700&display=swap');
+
+  :root{
+    --bg:#faf6ef;
+    --paper:#fffdf8;
+    --ink:#2a2420;
+    --ink-soft:#6b5f54;
+    --line:#e6ddcf;
+    --accent:#c4502e;       /* terracotta */
+    --accent-soft:#f3d9cd;
+    --leaf:#5a6b4a;          /* herb green */
+    --leaf-soft:#e3e8d8;
+    --gold:#c79a3b;
+    --shadow:0 2px 0 rgba(42,36,32,.06), 0 8px 24px -12px rgba(42,36,32,.28);
+    --radius:16px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Hanken Grotesk',sans-serif;
+    font-size:16px;
+    line-height:1.45;
+    padding-bottom:84px;
+    background-image:radial-gradient(circle at 12% 8%, rgba(196,80,46,.05), transparent 38%),
+                     radial-gradient(circle at 88% 92%, rgba(90,107,74,.06), transparent 40%);
+    min-height:100vh;
+  }
+  h1,h2,h3{font-family:'Fraunces',serif;margin:0;line-height:1.05;}
+  button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;}
+  input,textarea,select{font-family:inherit;font-size:16px;}
+
+  /* ---------- Top bar ---------- */
+  header{
+    position:sticky;top:0;z-index:30;
+    background:linear-gradient(180deg,var(--paper),rgba(255,253,248,.92));
+    backdrop-filter:blur(8px);
+    border-bottom:1px solid var(--line);
+    padding:14px 18px 12px;
+  }
+  .brand{display:flex;align-items:center;gap:10px;}
+  .brand .mark{
+    width:34px;height:34px;border-radius:10px;flex:none;
+    background:var(--accent);color:#fff;display:grid;place-items:center;
+    font-family:'Fraunces',serif;font-weight:900;font-size:20px;
+    box-shadow:var(--shadow);transform:rotate(-4deg);
+  }
+  .brand h1{font-size:22px;font-weight:900;letter-spacing:-.01em;}
+  .brand .sub{font-size:11px;color:var(--ink-soft);letter-spacing:.14em;text-transform:uppercase;font-weight:600;}
+  .sync{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink-soft);font-weight:600;}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--gold);}
+  .dot.ok{background:var(--leaf);}
+  .dot.err{background:var(--accent);}
+  .dot.busy{background:var(--gold);animation:pulse 1s infinite;}
+  @keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
+
+  main{max-width:680px;margin:0 auto;padding:18px;}
+
+  /* ---------- Bottom nav ---------- */
+  nav{
+    position:fixed;bottom:0;left:0;right:0;z-index:40;
+    background:var(--paper);border-top:1px solid var(--line);
+    display:flex;justify-content:space-around;
+    padding:8px 8px calc(8px + env(safe-area-inset-bottom));
+    box-shadow:0 -8px 24px -16px rgba(42,36,32,.4);
+  }
+  nav button{
+    flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;
+    padding:8px 4px;border-radius:12px;color:var(--ink-soft);font-size:11px;font-weight:700;
+    letter-spacing:.02em;transition:.2s;
+  }
+  nav button svg{width:22px;height:22px;stroke-width:2;}
+  nav button.active{color:var(--accent);background:var(--accent-soft);}
+
+  /* ---------- Generic ---------- */
+  .card{
+    background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);
+    box-shadow:var(--shadow);padding:16px;margin-bottom:14px;
+  }
+  .row{display:flex;gap:10px;align-items:center;}
+  .grow{flex:1;}
+  .btn{
+    background:var(--accent);color:#fff;font-weight:700;border-radius:12px;
+    padding:13px 18px;font-size:15px;box-shadow:var(--shadow);transition:.15s;
+    display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  }
+  .btn:active{transform:translateY(1px);}
+  .btn.ghost{background:transparent;color:var(--accent);border:1.5px solid var(--accent);box-shadow:none;}
+  .btn.leaf{background:var(--leaf);}
+  .btn.full{width:100%;}
+  .btn.sm{padding:9px 12px;font-size:13px;border-radius:10px;}
+  .iconbtn{padding:8px;border-radius:10px;color:var(--ink-soft);}
+  .iconbtn svg{width:20px;height:20px;stroke-width:2;}
+  label{display:block;font-size:12px;font-weight:700;color:var(--ink-soft);margin:0 0 5px;letter-spacing:.03em;text-transform:uppercase;}
+  input[type=text],input[type=number],input[type=url],textarea,select{
+    width:100%;background:#fff;border:1.5px solid var(--line);border-radius:10px;
+    padding:11px 12px;color:var(--ink);transition:.15s;
+  }
+  input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);}
+  textarea{resize:vertical;min-height:90px;line-height:1.5;}
+  .muted{color:var(--ink-soft);}
+  .pagetitle{font-size:30px;font-weight:900;letter-spacing:-.02em;margin-bottom:2px;}
+  .pagetitle em{font-style:italic;color:var(--accent);}
+  .pagesub{color:var(--ink-soft);font-size:14px;margin-bottom:18px;}
+  .empty{text-align:center;padding:40px 16px;color:var(--ink-soft);}
+  .empty svg{width:46px;height:46px;opacity:.4;margin-bottom:10px;stroke-width:1.5;}
+
+  /* ---------- Recipe list ---------- */
+  .recipe{display:flex;gap:14px;align-items:center;}
+  .recipe .thumb{
+    width:64px;height:64px;border-radius:12px;flex:none;object-fit:cover;
+    background:var(--leaf-soft);display:grid;place-items:center;color:var(--leaf);
+  }
+  .recipe .thumb svg{width:26px;height:26px;}
+  .recipe h3{font-size:18px;font-weight:600;}
+  .recipe .meta{font-size:12px;color:var(--ink-soft);margin-top:2px;}
+  .chip{display:inline-flex;align-items:center;gap:5px;background:var(--leaf-soft);color:var(--leaf);
+    font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;}
+
+  /* ---------- Ingredient editor rows ---------- */
+  .ing-row{display:grid;grid-template-columns:72px 78px 1fr 38px;gap:7px;margin-bottom:8px;align-items:center;}
+  .ing-row input{padding:9px 8px;font-size:14px;}
+  .ing-row .del{color:var(--accent);display:grid;place-items:center;padding:6px;border-radius:8px;}
+  .ing-head{display:grid;grid-template-columns:72px 78px 1fr 38px;gap:7px;font-size:10px;
+    text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);font-weight:700;margin-bottom:4px;}
+
+  /* ---------- Planner ---------- */
+  .ctrlcard{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;}
+  .day{display:flex;gap:13px;align-items:center;}
+  .day .num{
+    width:30px;height:30px;border-radius:9px;flex:none;background:var(--ink);color:var(--paper);
+    display:grid;place-items:center;font-family:'Fraunces',serif;font-weight:900;font-size:14px;
+  }
+  .day.pinned .num{background:var(--accent);}
+  .day .dname{font-size:16px;font-weight:600;}
+  .day .dmeta{font-size:12px;color:var(--ink-soft);}
+  .day .acts{margin-left:auto;display:flex;gap:4px;align-items:center;}
+  .servbox{display:flex;align-items:center;gap:4px;}
+  .servbox input{width:46px;text-align:center;padding:6px 4px;font-size:14px;}
+  .stepnav{margin-top:8px;}
+
+  /* ---------- Shopping list ---------- */
+  .shop-item{display:flex;align-items:center;gap:12px;padding:11px 4px;border-bottom:1px solid var(--line);}
+  .shop-item:last-child{border-bottom:none;}
+  .check{
+    width:24px;height:24px;border-radius:8px;border:2px solid var(--line);flex:none;
+    display:grid;place-items:center;transition:.15s;background:#fff;
+  }
+  .check.on{background:var(--leaf);border-color:var(--leaf);}
+  .check svg{width:14px;height:14px;color:#fff;stroke-width:3;opacity:0;}
+  .check.on svg{opacity:1;}
+  .shop-item.done .qty,.shop-item.done .nm{text-decoration:line-through;color:var(--ink-soft);}
+  .qty{font-weight:700;min-width:78px;font-variant-numeric:tabular-nums;}
+  .nm{flex:1;}
+  .src{font-size:11px;color:var(--ink-soft);}
+  .cat-h{font-family:'Fraunces',serif;font-weight:900;font-size:15px;color:var(--accent);
+    margin:18px 0 4px;letter-spacing:.01em;}
+
+  /* ---------- Modal ---------- */
+  .scrim{position:fixed;inset:0;background:rgba(42,36,32,.45);z-index:50;backdrop-filter:blur(2px);
+    display:flex;align-items:flex-end;justify-content:center;}
+  .sheet{background:var(--paper);width:100%;max-width:680px;max-height:92vh;overflow-y:auto;
+    border-radius:22px 22px 0 0;padding:20px 18px calc(28px + env(safe-area-inset-bottom));
+    box-shadow:0 -10px 40px -10px rgba(42,36,32,.4);animation:slideup .28s cubic-bezier(.2,.8,.2,1);}
+  @keyframes slideup{from{transform:translateY(40px);opacity:.6}to{transform:translateY(0);opacity:1}}
+  .sheet-h{display:flex;align-items:center;margin-bottom:16px;}
+  .sheet-h h2{font-size:24px;font-weight:900;}
+  .picklist button{width:100%;text-align:left;padding:13px;border-radius:12px;border:1px solid var(--line);
+    background:#fff;margin-bottom:8px;display:flex;align-items:center;gap:10px;}
+  .picklist button:active{background:var(--accent-soft);}
+
+  .toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%);z-index:60;
+    background:var(--ink);color:var(--paper);padding:11px 18px;border-radius:30px;font-size:14px;
+    font-weight:600;box-shadow:var(--shadow);opacity:0;pointer-events:none;transition:.3s;white-space:nowrap;}
+  .toast.show{opacity:1;}
+
+  /* ---------- Shopping edit rows ---------- */
+  .edit-item{display:grid;grid-template-columns:58px 64px 1fr 34px;gap:7px;align-items:center;
+    padding:7px 2px;border-bottom:1px solid var(--line);}
+  .edit-item:last-of-type{border-bottom:none;}
+  .edit-item input{padding:8px;font-size:14px;}
+  .edit-item .qin{text-align:center;}
+  .edit-item .unit{font-size:13px;color:var(--ink-soft);}
+  .edit-item .nm{font-size:15px;}
+  .edit-item .del2{color:var(--accent);display:grid;place-items:center;padding:6px;border-radius:8px;}
+  .edit-item .del2 svg{width:18px;height:18px;stroke-width:2;}
+
+  /* ---------- Per-day ingredients ---------- */
+  .day-block{margin-bottom:14px;}
+  .day-h{font-weight:700;font-size:15px;margin-bottom:4px;}
+  .day-ing{font-size:14px;padding:2px 0 2px 12px;}
+
+  .setup{max-width:680px;margin:0 auto;}
+  .setup ol{padding-left:20px;line-height:1.7;}
+  .setup code{background:var(--leaf-soft);padding:2px 6px;border-radius:5px;font-size:13px;}
+  .hide{display:none!important;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="mark">M</div>
+    <div>
+      <h1>Maaltijdplanner</h1>
+      <div class="sub">Plan · Kies · Boodschap</div>
+    </div>
+    <div class="sync" id="sync"><span class="dot" id="syncdot"></span><span id="synctxt">—</span></div>
+  </div>
+</header>
+
+<main id="app"></main>
+
+<nav id="nav">
+  <button data-tab="recipes" class="active">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+    Recepten
+  </button>
+  <button data-tab="planner">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+    Weekplan
+  </button>
+  <button data-tab="shopping">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>
+    Boodschappen
+  </button>
+  <button data-tab="store">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 9 4.5 4h15L21 9M3 9v10a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V9M3 9h18M9 20v-6h6v6"/></svg>
+    In de winkel
+  </button>
+  <button data-tab="settings">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    Instellingen
+  </button>
+</nav>
+
+<div id="modalRoot"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================
+   MAALTIJDPLANNER  —  data leeft in een Google Sheet,
+   benaderd via een Google Apps Script web-app (zie Instellingen).
+   ============================================================ */
+
+const LS = {
+  url:  'mp_script_url',
+  plan: 'mp_plan',
+  checked: 'mp_checked',
+  extras: 'mp_extras',
+  dayedits: 'mp_dayedits',
+  dayextras: 'mp_dayextras'
+};
+
+const state = {
+  recipes: [],            // [{id,name,servings,photo,steps,ingredients:[{qty,unit,name}]}]
+  plan: [],               // [{pid, recipeId, servings, pinned}]
+  checked: {},            // {key:true}
+  extras: [],             // [{id,qty,unit,name}]  handmatig toegevoegde dingen
+  dayEdits: {},           // {pid:{ingIndex:{qty:'string', removed:bool}}}  bewerkingen per dag
+  dayExtras: {},          // {pid:[{id,qty,unit,name}]}  extra regels per dag
+  categories: {},         // {ingredient(normName):categorie}  uit de Sheet
+  categoryOrder: [],      // [categorie,...]  winkelvolgorde uit de Sheet
+  loaded: false,
+  tab: 'recipes'
+};
+
+/* ---------- tiny helpers ---------- */
+const $ = (s,el=document)=>el.querySelector(s);
+const $$ = (s,el=document)=>[...el.querySelectorAll(s)];
+const esc = s => (s??'').toString().replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const uid = ()=> Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+const getUrl = ()=> localStorage.getItem(LS.url) || '';
+let toastT;
+function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2200);}
+function setSync(kind,txt){const d=$('#syncdot');d.className='dot '+(kind||'');$('#synctxt').textContent=txt;}
+
+/* round to a tidy number */
+function tidy(n){
+  if(!isFinite(n)) return n;
+  const r = Math.round(n*100)/100;
+  return (Math.abs(r-Math.round(r))<1e-9)? String(Math.round(r)) : String(r);
+}
+function normUnit(u){return (u||'').trim().toLowerCase().replace(/\.$/,'');}
+function normName(n){return (n||'').trim().toLowerCase();}
+
+/* ---------- persistence (local mirror for plan & checks) ---------- */
+function savePlanLocal(){
+  localStorage.setItem(LS.plan,JSON.stringify(state.plan));
+  localStorage.setItem(LS.checked,JSON.stringify(state.checked));
+  localStorage.setItem(LS.extras,JSON.stringify(state.extras));
+  localStorage.setItem(LS.dayedits,JSON.stringify(state.dayEdits));
+  localStorage.setItem(LS.dayextras,JSON.stringify(state.dayExtras));
+}
+function loadPlanLocal(){
+  try{state.plan=JSON.parse(localStorage.getItem(LS.plan))||[];}catch{state.plan=[];}
+  try{state.checked=JSON.parse(localStorage.getItem(LS.checked))||{};}catch{state.checked={};}
+  try{state.extras=JSON.parse(localStorage.getItem(LS.extras))||[];}catch{state.extras=[];}
+  try{state.dayEdits=JSON.parse(localStorage.getItem(LS.dayedits))||{};}catch{state.dayEdits={};}
+  try{state.dayExtras=JSON.parse(localStorage.getItem(LS.dayextras))||{};}catch{state.dayExtras={};}
+  // oudere plannen zonder pid: backfill
+  state.plan.forEach(p=>{if(!p.pid)p.pid=uid();});
+}
+
+/* ============================================================
+   GOOGLE SHEET API (via Apps Script)
+   ============================================================ */
+async function apiGet(){
+  const url=getUrl(); if(!url) throw new Error('no-url');
+  const r=await fetch(url+'?action=list',{method:'GET'});
+  const j=await r.json();
+  if(!j.ok) throw new Error(j.error||'api');
+  return j;   // {recipes, categories, categoryOrder}
+}
+async function apiPost(action,payload){
+  const url=getUrl(); if(!url) throw new Error('no-url');
+  // text/plain avoids a CORS preflight that Apps Script can't answer
+  const r=await fetch(url,{
+    method:'POST',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body:JSON.stringify({action,...payload})
+  });
+  const j=await r.json();
+  if(!j.ok) throw new Error(j.error||'api');
+  return j;
+}
+
+async function refreshRecipes(){
+  if(!getUrl()){state.loaded=true;render();return;}
+  setSync('busy','Synct…');
+  try{
+    const data=await apiGet();
+    state.recipes=data.recipes||[];
+    state.categories=data.categories||{};
+    state.categoryOrder=data.categoryOrder||[];
+    state.loaded=true;
+    pruneePlan();
+    setSync('ok','Verbonden');
+  }catch(e){
+    state.loaded=true;
+    setSync('err', e.message==='no-url'?'Niet ingesteld':'Fout');
+  }
+  render();
+}
+function pruneePlan(){
+  // drop plan entries whose recipe no longer exists
+  const ids=new Set(state.recipes.map(r=>r.id));
+  let changed=false;
+  state.plan=state.plan.filter(p=>{if(!ids.has(p.recipeId)){changed=true;return false;}return true;});
+  if(changed) savePlanLocal();
+}
+
+/* stuur alle ingrediëntnamen naar het Ingredienten-tabblad in de Sheet */
+async function syncIngredients(){
+  const names=new Set();
+  state.recipes.forEach(r=>(r.ingredients||[]).forEach(g=>{if(g.name&&g.name.trim())names.add(g.name.trim());}));
+  state.extras.forEach(e=>{if(e.name&&e.name.trim())names.add(e.name.trim());});
+  Object.values(state.dayExtras).forEach(arr=>(arr||[]).forEach(e=>{if(e.name&&e.name.trim())names.add(e.name.trim());}));
+  setSync('busy','Synct…');
+  try{
+    const j=await apiPost('syncIngredients',{names:[...names]});
+    toast(`Tabblad bijgewerkt · ${j.added} nieuw`);
+    await refreshRecipes();
+  }catch(e){toast('Fout: '+e.message);setSync('err','Fout');}
+}
+
+/* ============================================================
+   RENDER ROUTER
+   ============================================================ */
+function render(){
+  $$('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===state.tab));
+  const app=$('#app');
+  if(state.tab==='recipes')   app.innerHTML=viewRecipes();
+  if(state.tab==='planner')   app.innerHTML=viewPlanner();
+  if(state.tab==='shopping')  app.innerHTML=viewShopping();
+  if(state.tab==='store')     app.innerHTML=viewStore();
+  if(state.tab==='settings')  app.innerHTML=viewSettings();
+  bind();
+  window.scrollTo(0,0);
+}
+
+/* ---------- RECIPES ---------- */
+function viewRecipes(){
+  if(!getUrl()) return notConnected();
+  let list = state.recipes.length ? state.recipes.map(r=>{
+    const photo = r.photo
+      ? `<img class="thumb" src="${esc(r.photo)}" alt="" onerror="this.outerHTML='<div class=&quot;thumb&quot;>${plateSvg()}</div>'">`
+      : `<div class="thumb">${plateSvg()}</div>`;
+    const nIng=(r.ingredients||[]).length;
+    return `<div class="card recipe" data-open="${r.id}">
+      ${photo}
+      <div class="grow">
+        <h3>${esc(r.name)}</h3>
+        <div class="meta">${nIng} ingrediënt${nIng===1?'':'en'} · voor ${esc(r.servings)} pers.</div>
+      </div>
+      <span class="chip">${esc(r.servings)}p</span>
+    </div>`;
+  }).join('') : `<div class="empty">${bookSvg()}<div>Nog geen recepten.<br>Voeg je eerste gerecht toe.</div></div>`;
+
+  return `
+    <div class="pagetitle">Jouw <em>recepten</em></div>
+    <div class="pagesub">${state.recipes.length} gerecht${state.recipes.length===1?'':'en'} in je boek</div>
+    <button class="btn full" id="addRecipe">＋ Nieuw recept</button>
+    <div style="height:14px"></div>
+    ${list}
+  `;
+}
+
+/* ---------- PLANNER ---------- */
+function viewPlanner(){
+  if(!getUrl()) return notConnected();
+  if(!state.recipes.length) return `<div class="pagetitle">Week<em>plan</em></div>
+    <div class="empty">${bookSvg()}<div>Voeg eerst recepten toe.</div></div>`;
+
+  const days = state.plan.map((p,i)=>{
+    const r=state.recipes.find(x=>x.id===p.recipeId);
+    if(!r) return '';
+    return `<div class="card day ${p.pinned?'pinned':''}">
+      <div class="num">${i+1}</div>
+      <div class="grow" data-recipe="${r.id}">
+        <div class="dname">${esc(r.name)}</div>
+        <div class="dmeta">basis ${esc(r.servings)}p</div>
+      </div>
+      <div class="acts">
+        <div class="servbox" title="Personen deze dag">
+          <button class="iconbtn" data-serv-minus="${i}">–</button>
+          <input type="number" min="1" value="${p.servings}" data-serv="${i}">
+          <button class="iconbtn" data-serv-plus="${i}">+</button>
+        </div>
+        <button class="iconbtn" data-pin="${i}" title="Vastzetten">${p.pinned?pinFilled():pinOutline()}</button>
+        <button class="iconbtn" data-swap="${i}" title="Wissel gerecht">${swapSvg()}</button>
+        <button class="iconbtn" data-remove="${i}" title="Verwijderen">${trashSvg()}</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  return `
+    <div class="pagetitle">Week<em>plan</em></div>
+    <div class="pagesub">Kies willekeurig, zet vast wat je zeker wilt, wissel de rest.</div>
+    <div class="card ctrlcard">
+      <div>
+        <label>Aantal gerechten</label>
+        <input type="number" id="planCount" min="1" max="21" value="${state.plan.length||5}" style="width:90px">
+      </div>
+      <button class="btn grow" id="rollPlan">🎲 Kies willekeurig</button>
+    </div>
+    ${state.plan.length?days:`<div class="empty muted">Nog geen plan. Stel een aantal in en kies willekeurig.</div>`}
+    ${state.plan.length?`<button class="btn leaf full" id="goShop" style="margin-top:6px">Maak boodschappenlijst →</button>`:''}
+  `;
+}
+
+/* ---------- SHOPPING ---------- */
+
+/* per-dag bewerkingen lezen/schrijven */
+function setDayEdit(pid,gi,patch){
+  const d=state.dayEdits[pid]||(state.dayEdits[pid]={});
+  d[gi]=Object.assign(d[gi]||{},patch);
+}
+/* ingrediënt-regels van één geplande dag, geschaald + met bewerkingen toegepast */
+function dayLines(p){
+  const r=state.recipes.find(x=>x.id===p.recipeId);
+  if(!r) return {recipe:null,lines:[]};
+  const factor=(p.servings||r.servings)/(r.servings||1);
+  const ed=state.dayEdits[p.pid]||{};
+  const lines=(r.ingredients||[]).map((g,gi)=>{
+    if(!normName(g.name)) return null;
+    const o=ed[gi]||{};
+    if(o.removed) return null;
+    let qty;
+    if(o.qty!==undefined) qty=o.qty;                       // door gebruiker overschreven
+    else{
+      const q=parseFloat(String(g.qty).replace(',','.'));
+      qty = isFinite(q)? tidy(q*factor) : String(g.qty||'');
+    }
+    return {gi,qty,unit:g.unit||'',name:g.name.trim()};
+  }).filter(Boolean);
+  return {recipe:r,lines};
+}
+
+/* per-dag extra regels lezen/aanpassen */
+function findDayExtra(exid){
+  for(const pid in state.dayExtras){
+    const e=(state.dayExtras[pid]||[]).find(x=>x.id===exid);
+    if(e) return e;
+  }
+  return null;
+}
+function removeDayExtra(exid){
+  for(const pid in state.dayExtras){
+    state.dayExtras[pid]=(state.dayExtras[pid]||[]).filter(x=>x.id!==exid);
+  }
+}
+
+/* alles optellen over alle dagen (alleen gebruikt op 'In de winkel') */
+function aggregate(){
+  const map=new Map();
+  const add=(qty,unit,name)=>{
+    const nm=normName(name); if(!nm) return;
+    const key=nm+'|'+normUnit(unit);
+    if(!map.has(key)) map.set(key,{key,name:name.trim(),unit:unit?unit.trim():'',qty:0,hasNum:false,raw:[]});
+    const e=map.get(key);
+    const q=parseFloat(String(qty).replace(',','.'));
+    if(isFinite(q)){e.hasNum=true;e.qty+=q;}
+    else if(String(qty).trim()) e.raw.push(String(qty).trim());
+  };
+  state.plan.forEach(p=>{
+    dayLines(p).lines.forEach(ln=>add(ln.qty,ln.unit,ln.name));
+    (state.dayExtras[p.pid]||[]).forEach(e=>add(e.qty,e.unit,e.name));
+  });
+  return [...map.values()].sort((a,b)=>a.name.localeCompare(b.name,'nl'));
+}
+/* getoonde aantal-string voor een opgetelde regel */
+function aggQtyStr(it){
+  const parts=[];
+  if(it.hasNum) parts.push(tidy(it.qty));
+  it.raw.forEach(r=>parts.push(esc(r)));
+  if(!parts.length) return '';
+  return parts.join(' + ')+(it.unit?' '+esc(it.unit):'');
+}
+
+/* ----- BOODSCHAPPEN (per dag, bewerkbaar — niet optellen) ----- */
+function viewShopping(){
+  if(!getUrl()) return notConnected();
+
+  // per dag de (geschaalde, bewerkbare) ingrediënten
+  const dayHtml = state.plan.map((p,i)=>{
+    const {recipe:r,lines}=dayLines(p);
+    if(!r) return '';
+    const rowsH = lines.map(ln=>`<div class="edit-item" data-pid="${p.pid}">
+        <input class="qin" type="text" value="${esc(ln.qty)}" data-dqty="${p.pid}|${ln.gi}" placeholder="–">
+        <span class="unit">${esc(ln.unit)}</span>
+        <div class="nm">${esc(ln.name)}</div>
+        <button class="del2" data-drem="${p.pid}|${ln.gi}" title="Verwijderen">${trashSvg()}</button>
+      </div>`).join('');
+    const exRows = (state.dayExtras[p.pid]||[]).map(e=>`<div class="edit-item" data-dexid="${e.id}">
+        <input class="qin" type="text" value="${esc(e.qty||'')}" data-deqty="${e.id}" placeholder="–">
+        <input class="qin unitin" type="text" value="${esc(e.unit||'')}" data-deunit="${e.id}" placeholder="eenh.">
+        <input class="nm nmin" type="text" value="${esc(e.name||'')}" data-dename="${e.id}" placeholder="extra…">
+        <button class="del2" data-derem="${e.id}" title="Verwijderen">${trashSvg()}</button>
+      </div>`).join('');
+    const body = (rowsH+exRows) || '<div class="day-ing muted">Geen regels meer</div>';
+    return `<div class="cat-h">Dag ${i+1}: ${esc(r.name)} <span class="muted" style="font-weight:400;font-size:12px">(${p.servings}p)</span></div>
+      <div class="card">${body}
+        <button class="btn ghost sm" data-dayadd="${p.pid}" style="margin-top:10px">＋ Toevoegen aan deze dag</button>
+      </div>`;
+  }).join('');
+
+  // extra dingen: volledig bewerkbaar
+  const extraRows = state.extras.map(e=>`<div class="edit-item" data-xid="${e.id}">
+    <input class="qin" type="text" value="${esc(e.qty||'')}" data-xqty="${e.id}" placeholder="–">
+    <input class="qin unitin" type="text" value="${esc(e.unit||'')}" data-xunit="${e.id}" placeholder="eenh.">
+    <input class="nm nmin" type="text" value="${esc(e.name||'')}" data-xname="${e.id}" placeholder="naam">
+    <button class="del2" data-xrem="${e.id}" title="Verwijderen">${trashSvg()}</button>
+  </div>`).join('');
+
+  return `
+    <div class="pagetitle">Bood<em>schappen</em></div>
+    <div class="pagesub">Per dag — pas hoeveelheden aan of verwijder regels</div>
+
+    ${state.plan.length ? dayHtml
+      : `<div class="card"><p class="muted" style="margin:0">Nog geen weekplan — kies eerst een plan.</p></div>`}
+
+    <div class="cat-h">Extra dingen</div>
+    <div class="card">
+      ${extraRows||'<p class="muted" style="margin:0 0 4px">Nog niets toegevoegd.</p>'}
+      <button class="btn ghost sm" id="addExtra" style="margin-top:10px">＋ Extra ding</button>
+    </div>
+  `;
+}
+
+/* categorie van een ingrediënt + sorteer-rang volgens winkelvolgorde */
+function catOf(name){return state.categories[normName(name)]||'';}
+function catRank(c){
+  if(!c) return 1e9;                              // 'Overig' altijd laatst
+  const i=state.categoryOrder.indexOf(c);
+  return i<0 ? 1e6 : i;                           // onbekende categorie ná de geordende
+}
+
+/* ----- IN DE WINKEL (opgeteld, gegroepeerd op winkel-stuk, afvinkbaar) ----- */
+function viewStore(){
+  if(!getUrl()) return notConnected();
+
+  const items=[];
+  aggregate().forEach(it=>{
+    items.push({key:it.key,name:it.name,qtyStr:aggQtyStr(it),cat:catOf(it.name)});
+  });
+  state.extras.forEach(e=>{
+    if(!e.name||!e.name.trim()) return;
+    items.push({key:'x:'+e.id,name:e.name.trim(),qtyStr:e.qty?esc(e.qty)+(e.unit?' '+esc(e.unit):''):'',cat:catOf(e.name)});
+  });
+  items.sort((a,b)=>a.name.localeCompare(b.name,'nl'));   // binnen een groep alfabetisch
+
+  if(!items.length) return `<div class="pagetitle">In de <em>winkel</em></div>
+    <div class="empty">${cartSvg()}<div>Lijst is leeg.<br>Maak een plan of voeg extra dingen toe.</div></div>`;
+
+  const rowHtml=it=>{
+    const done=state.checked[it.key];
+    return `<div class="shop-item ${done?'done':''}" data-check="${esc(it.key)}">
+      <div class="check ${done?'on':''}">${checkSvg()}</div>
+      <div class="qty">${it.qtyStr}</div>
+      <div class="nm">${esc(it.name)}</div>
+    </div>`;
+  };
+
+  // groeperen per categorie, groepen op winkelvolgorde
+  const groups={};
+  items.forEach(it=>{(groups[it.cat]||(groups[it.cat]=[])).push(it);});
+  const cats=Object.keys(groups).sort((a,b)=>(catRank(a)-catRank(b))||a.localeCompare(b,'nl'));
+  const sections=cats.map(c=>
+    `<div class="cat-h">${esc(c||'Overig')}</div>
+     <div class="card">${groups[c].map(rowHtml).join('')}</div>`).join('');
+
+  return `
+    <div class="pagetitle">In de <em>winkel</em></div>
+    <div class="pagesub">${items.length} regels · op winkelvolgorde · vink af tijdens het winkelen</div>
+    ${sections}
+    <button class="btn ghost full" id="clearChecks">Vinkjes wissen</button>
+  `;
+}
+
+/* ---------- SETTINGS ---------- */
+function viewSettings(){
+  const url=getUrl();
+  return `
+    <div class="pagetitle">Instel<em>lingen</em></div>
+    <div class="pagesub">Koppel je Google Sheet als database</div>
+
+    <div class="card">
+      <label>Web-app URL (van je Apps Script)</label>
+      <input type="url" id="urlInput" placeholder="https://script.google.com/macros/s/…/exec" value="${esc(url)}">
+      <div class="row" style="margin-top:10px">
+        <button class="btn grow" id="saveUrl">Opslaan & testen</button>
+        ${url?`<button class="btn ghost" id="reload">Verversen</button>`:''}
+      </div>
+    </div>
+
+    ${url?`<div class="card">
+      <h2 style="font-size:20px;margin-bottom:8px">Winkelindeling</h2>
+      <p class="muted" style="font-size:14px;margin:0 0 8px">Sorteer je boodschappen op de volgorde waarin je door de winkel loopt:</p>
+      <ol style="padding-left:20px;line-height:1.6;font-size:14px;margin:0 0 12px">
+        <li>Klik op de knop hieronder: alle ingrediënten komen in het tabblad <code>Ingredienten</code>.</li>
+        <li>Vul daar bij elk ingrediënt een <b>categorie</b> in (bv. Groente &amp; fruit, Brood, Zuivel).</li>
+        <li>In het tabblad <code>Categorieen</code> zet je de categorieën in de juiste <b>volgorde</b> (bovenste rij = vooraan in de winkel).</li>
+        <li>Klik daarna op <b>Verversen</b>.</li>
+      </ol>
+      <button class="btn grow" id="syncIng">Ingrediënten-tabblad bijwerken</button>
+    </div>`:''}
+
+    <div class="card setup">
+      <h2 style="font-size:20px;margin-bottom:8px">Eenmalige installatie</h2>
+      <ol>
+        <li>Maak een nieuwe <b>Google Sheet</b> aan.</li>
+        <li>Menu <code>Extensies → Apps Script</code>.</li>
+        <li>Verwijder de voorbeeldcode, plak de code die je van Claude kreeg, en sla op.</li>
+        <li>Klik <code>Implementeren → Nieuwe implementatie</code> → type <b>Web-app</b>.</li>
+        <li>Bij "Toegang": kies <b>Iedereen</b>. Klik implementeren en geef toestemming.</li>
+        <li>Kopieer de <b>web-app URL</b> en plak hem hierboven.</li>
+      </ol>
+      <p class="muted" style="font-size:13px">De Sheet vult zichzelf met de juiste kolommen bij de eerste keer.</p>
+    </div>
+
+    <div class="card">
+      <h3 style="font-size:16px;margin-bottom:6px">Tip</h3>
+      <p class="muted" style="font-size:14px;margin:0">Voeg deze pagina toe aan je beginscherm (browser-menu → "Toevoegen aan beginscherm") zodat het als app voelt op je telefoon.</p>
+    </div>
+  `;
+}
+
+function notConnected(){
+  return `<div class="empty">${plugSvg()}
+    <div style="font-size:17px;color:var(--ink);font-weight:700;margin-bottom:6px">Nog niet gekoppeld</div>
+    <div>Ga naar <b>Instellingen</b> en koppel je Google Sheet.</div>
+    <div style="height:16px"></div>
+    <button class="btn" onclick="state.tab='settings';render()">Naar instellingen</button>
+  </div>`;
+}
+
+/* ============================================================
+   EVENT BINDING
+   ============================================================ */
+function bind(){
+  // recipes
+  const add=$('#addRecipe'); if(add) add.onclick=()=>openRecipeEditor();
+  $$('[data-open]').forEach(el=>el.onclick=()=>openRecipeView(el.dataset.open));
+
+  // settings
+  const save=$('#saveUrl'); if(save) save.onclick=async()=>{
+    let v=$('#urlInput').value.trim();
+    localStorage.setItem(LS.url,v);
+    toast('Opgeslagen, testen…');
+    await refreshRecipes();
+  };
+  const rl=$('#reload'); if(rl) rl.onclick=refreshRecipes;
+  const si=$('#syncIng'); if(si) si.onclick=syncIngredients;
+
+  // planner
+  const roll=$('#rollPlan'); if(roll) roll.onclick=rollPlan;
+  const gs=$('#goShop'); if(gs) gs.onclick=()=>{state.tab='shopping';render();};
+  $$('[data-pin]').forEach(b=>b.onclick=()=>{const i=+b.dataset.pin;state.plan[i].pinned=!state.plan[i].pinned;savePlanLocal();render();});
+  $$('[data-swap]').forEach(b=>b.onclick=()=>openSwap(+b.dataset.swap));
+  $$('[data-remove]').forEach(b=>b.onclick=()=>{const i=+b.dataset.remove;const p=state.plan[i];if(p){delete state.dayEdits[p.pid];delete state.dayExtras[p.pid];}state.plan.splice(i,1);savePlanLocal();render();});
+  $$('[data-serv]').forEach(inp=>inp.onchange=()=>{const i=+inp.dataset.serv;state.plan[i].servings=Math.max(1,parseInt(inp.value)||1);savePlanLocal();render();});
+  $$('[data-serv-plus]').forEach(b=>b.onclick=()=>{const i=+b.dataset.servPlus;state.plan[i].servings++;savePlanLocal();render();});
+  $$('[data-serv-minus]').forEach(b=>b.onclick=()=>{const i=+b.dataset.servMinus;state.plan[i].servings=Math.max(1,state.plan[i].servings-1);savePlanLocal();render();});
+  $$('[data-recipe]').forEach(el=>el.onclick=()=>openRecipeView(el.dataset.recipe));
+
+  // shopping (afvinken in de winkel)
+  $$('[data-check]').forEach(el=>el.onclick=()=>{const k=el.dataset.check;state.checked[k]=!state.checked[k];savePlanLocal();render();});
+  const cc=$('#clearChecks'); if(cc) cc.onclick=()=>{state.checked={};savePlanLocal();render();};
+
+  // boodschappen bewerken — per-dag recept-regels
+  $$('[data-dqty]').forEach(inp=>inp.onchange=()=>{const[pid,gi]=inp.dataset.dqty.split('|');setDayEdit(pid,gi,{qty:inp.value.trim()});savePlanLocal();});
+  $$('[data-drem]').forEach(b=>b.onclick=()=>{const[pid,gi]=b.dataset.drem.split('|');setDayEdit(pid,gi,{removed:true});savePlanLocal();render();});
+
+  // boodschappen bewerken — per-dag extra regels
+  $$('[data-dayadd]').forEach(b=>b.onclick=()=>{const pid=b.dataset.dayadd;(state.dayExtras[pid]||(state.dayExtras[pid]=[])).push({id:uid(),qty:'',unit:'',name:''});savePlanLocal();render();});
+  $$('[data-deqty]').forEach(inp=>inp.onchange=()=>{const e=findDayExtra(inp.dataset.deqty);if(e){e.qty=inp.value.trim();savePlanLocal();}});
+  $$('[data-deunit]').forEach(inp=>inp.onchange=()=>{const e=findDayExtra(inp.dataset.deunit);if(e){e.unit=inp.value.trim();savePlanLocal();}});
+  $$('[data-dename]').forEach(inp=>inp.onchange=()=>{const e=findDayExtra(inp.dataset.dename);if(e){e.name=inp.value.trim();savePlanLocal();}});
+  $$('[data-derem]').forEach(b=>b.onclick=()=>{removeDayExtra(b.dataset.derem);savePlanLocal();render();});
+
+  // boodschappen bewerken — extra dingen
+  const ae=$('#addExtra'); if(ae) ae.onclick=()=>{state.extras.push({id:uid(),qty:'',unit:'',name:''});savePlanLocal();render();};
+  const findExtra=id=>state.extras.find(e=>e.id===id);
+  $$('[data-xqty]').forEach(inp=>inp.onchange=()=>{const e=findExtra(inp.dataset.xqty);if(e){e.qty=inp.value.trim();savePlanLocal();}});
+  $$('[data-xunit]').forEach(inp=>inp.onchange=()=>{const e=findExtra(inp.dataset.xunit);if(e){e.unit=inp.value.trim();savePlanLocal();}});
+  $$('[data-xname]').forEach(inp=>inp.onchange=()=>{const e=findExtra(inp.dataset.xname);if(e){e.name=inp.value.trim();savePlanLocal();}});
+  $$('[data-xrem]').forEach(b=>b.onclick=()=>{state.extras=state.extras.filter(e=>e.id!==b.dataset.xrem);savePlanLocal();render();});
+}
+
+/* ---------- PLAN LOGIC ---------- */
+function rollPlan(){
+  const n=Math.max(1,Math.min(21,parseInt($('#planCount').value)||1));
+  if(!state.recipes.length){toast('Geen recepten');return;}
+  const kept=[];
+  for(let i=0;i<n;i++){
+    const existing=state.plan[i];
+    if(existing && existing.pinned){kept.push(existing);continue;}
+    const r=state.recipes[Math.floor(Math.random()*state.recipes.length)];
+    // preserve servings if the slot existed, else default to recipe servings
+    const serv = existing? existing.servings : parseInt(r.servings)||2;
+    kept.push({pid:uid(),recipeId:r.id,servings:serv,pinned:false});
+  }
+  state.plan=kept;
+  pruneDayEdits();
+  savePlanLocal();
+  render();
+}
+/* gooi bewerkingen weg van dagen die niet meer in het plan staan */
+function pruneDayEdits(){
+  const pids=new Set(state.plan.map(p=>p.pid));
+  Object.keys(state.dayEdits).forEach(pid=>{if(!pids.has(pid))delete state.dayEdits[pid];});
+  Object.keys(state.dayExtras).forEach(pid=>{if(!pids.has(pid))delete state.dayExtras[pid];});
+}
+
+/* ============================================================
+   MODALS
+   ============================================================ */
+function modal(html){
+  $('#modalRoot').innerHTML=`<div class="scrim" id="scrim"><div class="sheet">${html}</div></div>`;
+  $('#scrim').onclick=e=>{if(e.target.id==='scrim')closeModal();};
+}
+function closeModal(){$('#modalRoot').innerHTML='';}
+
+/* ----- recipe view (read only + edit/delete) ----- */
+function openRecipeView(id){
+  const r=state.recipes.find(x=>x.id===id); if(!r) return;
+  const photo=r.photo?`<img src="${esc(r.photo)}" style="width:100%;border-radius:14px;margin-bottom:14px;max-height:240px;object-fit:cover" onerror="this.remove()">`:'';
+  const ings=(r.ingredients||[]).map(i=>`<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line)">
+    <div class="qty" style="min-width:90px">${esc(i.qty)} ${esc(i.unit||'')}</div><div class="grow">${esc(i.name)}</div></div>`).join('');
+  const steps=(r.steps||'').split('\n').filter(s=>s.trim()).map((s,i)=>
+    `<div class="row" style="align-items:flex-start;margin-bottom:10px"><div class="num" style="background:var(--leaf)">${i+1}</div><div class="grow" style="padding-top:3px">${esc(s)}</div></div>`).join('');
+  modal(`
+    <div class="sheet-h"><h2>${esc(r.name)}</h2>
+      <button class="iconbtn" style="margin-left:auto" onclick="closeModal()">${xSvg()}</button></div>
+    ${photo}
+    <span class="chip">voor ${esc(r.servings)} personen</span>
+    <h3 style="font-size:17px;margin:18px 0 6px">Ingrediënten</h3>${ings||'<p class="muted">Geen</p>'}
+    <h3 style="font-size:17px;margin:18px 0 10px">Bereiding</h3>${steps||'<p class="muted">Geen stappen</p>'}
+    <div class="row" style="margin-top:22px">
+      <button class="btn ghost grow" onclick="openRecipeEditor('${r.id}')">Bewerken</button>
+      <button class="btn grow" style="background:var(--accent)" onclick="deleteRecipe('${r.id}')">Verwijderen</button>
+    </div>
+  `);
+}
+
+async function deleteRecipe(id){
+  if(!confirm('Dit recept verwijderen?')) return;
+  closeModal();setSync('busy','Verwijderen…');
+  try{await apiPost('delete',{id});toast('Verwijderd');await refreshRecipes();}
+  catch(e){toast('Fout: '+e.message);setSync('err','Fout');}
+}
+
+/* ----- recipe editor ----- */
+function ingRowHtml(ing={}){
+  return `<div class="ing-row">
+    <input type="text" placeholder="2" value="${esc(ing.qty||'')}" data-f="qty">
+    <input type="text" placeholder="stuks" value="${esc(ing.unit||'')}" data-f="unit">
+    <input type="text" placeholder="paprika" value="${esc(ing.name||'')}" data-f="name">
+    <button class="del" onclick="this.parentElement.remove()">${xSvg()}</button>
+  </div>`;
+}
+function openRecipeEditor(id){
+  const r = id? state.recipes.find(x=>x.id===id) : {name:'',servings:2,photo:'',steps:'',ingredients:[{}]};
+  const ingHtml=(r.ingredients&&r.ingredients.length?r.ingredients:[{}]).map(ingRowHtml).join('');
+  modal(`
+    <div class="sheet-h"><h2>${id?'Recept bewerken':'Nieuw recept'}</h2>
+      <button class="iconbtn" style="margin-left:auto" onclick="closeModal()">${xSvg()}</button></div>
+    <input type="hidden" id="edId" value="${id||''}">
+    <label>Naam</label>
+    <input type="text" id="edName" placeholder="Bijv. Pasta pesto" value="${esc(r.name)}">
+    <div class="row" style="margin-top:12px">
+      <div class="grow"><label>Voor hoeveel personen</label>
+        <input type="number" id="edServ" min="1" value="${esc(r.servings||2)}"></div>
+    </div>
+    <label style="margin-top:12px">Foto-URL (optioneel)</label>
+    <input type="url" id="edPhoto" placeholder="https://…/foto.jpg" value="${esc(r.photo||'')}">
+
+    <label style="margin-top:16px">Ingrediënten</label>
+    <div class="ing-head"><span>Aantal</span><span>Eenheid</span><span>Naam</span><span></span></div>
+    <div id="ingList">${ingHtml}</div>
+    <button class="btn ghost sm" id="addIng" style="margin-top:4px">＋ Ingrediënt</button>
+
+    <label style="margin-top:16px">Bereiding (één stap per regel)</label>
+    <textarea id="edSteps" placeholder="Snijd de ui&#10;Bak het vlees aan&#10;…">${esc(r.steps||'')}</textarea>
+
+    <button class="btn full" id="saveRecipe" style="margin-top:18px">Opslaan</button>
+  `);
+  $('#addIng').onclick=()=>{const d=document.createElement('div');d.innerHTML=ingRowHtml();$('#ingList').appendChild(d.firstElementChild);};
+  $('#saveRecipe').onclick=saveRecipe;
+}
+
+async function saveRecipe(){
+  const name=$('#edName').value.trim();
+  if(!name){toast('Geef een naam op');return;}
+  const ingredients=$$('#ingList .ing-row').map(row=>({
+    qty:$('[data-f=qty]',row).value.trim(),
+    unit:$('[data-f=unit]',row).value.trim(),
+    name:$('[data-f=name]',row).value.trim()
+  })).filter(i=>i.name);
+  const rec={
+    id:$('#edId').value||uid(),
+    name,
+    servings:Math.max(1,parseInt($('#edServ').value)||1),
+    photo:$('#edPhoto').value.trim(),
+    steps:$('#edSteps').value,
+    ingredients
+  };
+  closeModal();setSync('busy','Opslaan…');
+  try{
+    await apiPost('save',{recipe:rec});
+    toast('Opgeslagen');
+    await refreshRecipes();
+  }catch(e){toast('Fout: '+e.message);setSync('err','Fout');}
+}
+
+/* ----- swap picker ----- */
+function openSwap(i){
+  const cur=state.plan[i];
+  const list=state.recipes.map(r=>`<button onclick="doSwap(${i},'${r.id}')">
+    <div class="num" style="background:${r.id===cur.recipeId?'var(--accent)':'var(--leaf)'}">${esc(r.name[0]||'?')}</div>
+    <div class="grow" style="text-align:left">${esc(r.name)}<div class="muted" style="font-size:12px">voor ${esc(r.servings)}p</div></div>
+  </button>`).join('');
+  modal(`<div class="sheet-h"><h2>Wissel gerecht</h2>
+    <button class="iconbtn" style="margin-left:auto" onclick="closeModal()">${xSvg()}</button></div>
+    <div class="picklist">${list}</div>`);
+}
+function doSwap(i,id){const p=state.plan[i];if(p){delete state.dayEdits[p.pid];delete state.dayExtras[p.pid];p.recipeId=id;}savePlanLocal();closeModal();render();}
+
+/* ============================================================
+   ICONS
+   ============================================================ */
+function plateSvg(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg>`;}
+function bookSvg(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>`;}
+function cartSvg(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>`;}
+function plugSvg(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 22v-5M9 8V2M15 8V2M18 8H6v4a6 6 0 0 0 12 0V8z"/></svg>`;}
+function xSvg(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 6 6 18M6 6l12 12"/></svg>`;}
+function trashSvg(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`;}
+function swapSvg(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m17 2 4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 22l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></svg>`;}
+function pinOutline(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>`;}
+function pinFilled(){return `<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>`;}
+function checkSvg(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 6 9 17l-5-5"/></svg>`;}
+
+/* ============================================================
+   BOOT
+   ============================================================ */
+$$('#nav button').forEach(b=>b.onclick=()=>{state.tab=b.dataset.tab;render();});
+loadPlanLocal();
+render();
+refreshRecipes();
+</script>
+</body>
+</html>
