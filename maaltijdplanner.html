@@ -553,6 +553,7 @@ function aggregate(){
     dayLines(p).lines.forEach(ln=>add(ln.qty,ln.unit,ln.name));
     (state.dayExtras[p.pid]||[]).forEach(e=>add(e.qty,e.unit,e.name));
   });
+  state.extras.forEach(e=>add(e.qty,e.unit,e.name));   // algemene 'Extra dingen' tellen ook mee
   return [...map.values()].sort((a,b)=>a.name.localeCompare(b.name,'nl'));
 }
 /* getoonde aantal-string voor een opgetelde regel */
@@ -628,14 +629,7 @@ function catRank(c){
 function viewStore(){
   if(!getUrl()) return notConnected();
 
-  const items=[];
-  aggregate().forEach(it=>{
-    items.push({key:it.key,name:it.name,qtyStr:aggQtyStr(it),cat:catOf(it.name)});
-  });
-  state.extras.forEach(e=>{
-    if(!e.name||!e.name.trim()) return;
-    items.push({key:'x:'+e.id,name:e.name.trim().toLowerCase(),qtyStr:e.qty?esc(e.qty)+(e.unit?' '+esc(e.unit):''):'',cat:catOf(e.name)});
-  });
+  const items=aggregate().map(it=>({key:it.key,name:it.name,qtyStr:aggQtyStr(it),cat:catOf(it.name)}));
   items.sort((a,b)=>a.name.localeCompare(b.name,'nl'));   // binnen een groep alfabetisch
 
   if(!items.length) return `<div class="pagetitle">In de <em>winkel</em></div>
@@ -777,14 +771,29 @@ function bind(){
 }
 
 /* ---------- PLAN LOGIC ---------- */
+/* gewicht van een recept: 0–10, standaard 5 als (nog) niet ingesteld */
+function weightOf(r){
+  const w=(r && r.weight!=='' && r.weight!=null)? Number(r.weight) : 5;
+  return isFinite(w)? Math.max(0,Math.min(10,w)) : 5;
+}
+/* kies één recept gewogen op gewicht (0 = nooit) */
+function pickWeighted(){
+  const total=state.recipes.reduce((s,r)=>s+weightOf(r),0);
+  if(total<=0) return null;
+  let x=Math.random()*total;
+  for(const r of state.recipes){ x-=weightOf(r); if(x<0) return r; }
+  return state.recipes[state.recipes.length-1];
+}
+
 function rollPlan(){
   const n=Math.max(1,Math.min(21,parseInt($('#planCount').value)||1));
   if(!state.recipes.length){toast('Geen recepten');return;}
+  if(pickWeighted()===null){toast('Alle recepten hebben gewicht 0');return;}
   const kept=[];
   for(let i=0;i<n;i++){
     const existing=state.plan[i];
     if(existing && existing.pinned){kept.push(existing);continue;}
-    const r=state.recipes[Math.floor(Math.random()*state.recipes.length)];
+    const r=pickWeighted();
     // preserve servings if the slot existed, else default to recipe servings
     const serv = existing? existing.servings : parseInt(r.servings)||2;
     kept.push({pid:uid(),recipeId:r.id,servings:serv,pinned:false});
@@ -823,6 +832,7 @@ function openRecipeView(id){
       <button class="iconbtn" style="margin-left:auto" onclick="closeModal()">${xSvg()}</button></div>
     ${photo}
     <span class="chip">voor ${esc(r.servings)} personen</span>
+    <span class="chip" style="margin-left:6px;background:var(--accent-soft);color:var(--accent)">gewicht ${esc(weightOf(r))}</span>
     <h3 style="font-size:17px;margin:18px 0 6px">Ingrediënten</h3>${ings||'<p class="muted">Geen</p>'}
     <h3 style="font-size:17px;margin:18px 0 10px">Bereiding</h3>${steps||'<p class="muted">Geen stappen</p>'}
     <div class="row" style="margin-top:22px">
@@ -849,7 +859,7 @@ function ingRowHtml(ing={}){
   </div>`;
 }
 function openRecipeEditor(id){
-  const r = id? state.recipes.find(x=>x.id===id) : {name:'',servings:2,photo:'',steps:'',ingredients:[{}]};
+  const r = id? state.recipes.find(x=>x.id===id) : {name:'',servings:2,weight:5,photo:'',steps:'',ingredients:[{}]};
   const ingHtml=(r.ingredients&&r.ingredients.length?r.ingredients:[{}]).map(ingRowHtml).join('');
   modal(`
     <div class="sheet-h"><h2>${id?'Recept bewerken':'Nieuw recept'}</h2>
@@ -860,7 +870,10 @@ function openRecipeEditor(id){
     <div class="row" style="margin-top:12px">
       <div class="grow"><label>Voor hoeveel personen</label>
         <input type="number" id="edServ" min="1" value="${esc(r.servings||2)}"></div>
+      <div class="grow"><label>Gewicht (0–10)</label>
+        <input type="number" id="edWeight" min="0" max="10" step="1" value="${esc(weightOf(r))}"></div>
     </div>
+    <p class="muted" style="font-size:12px;margin:4px 0 0">0 = nooit voorstellen · 1 = normaal · 10 = 10× zo vaak als 1</p>
     <label style="margin-top:12px">Foto-URL (optioneel)</label>
     <input type="url" id="edPhoto" placeholder="https://…/foto.jpg" value="${esc(r.photo||'')}">
 
@@ -890,6 +903,7 @@ async function saveRecipe(){
     id:$('#edId').value||uid(),
     name,
     servings:Math.max(1,parseInt($('#edServ').value)||1),
+    weight:Math.max(0,Math.min(10,parseInt($('#edWeight').value)||0)),
     photo:$('#edPhoto').value.trim(),
     steps:$('#edSteps').value,
     ingredients

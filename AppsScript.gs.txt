@@ -20,7 +20,7 @@ function getSheet_() {
   let sh = ss.getSheetByName(SHEET_NAME);
   if (!sh) {
     sh = ss.insertSheet(SHEET_NAME);
-    sh.appendRow(['id', 'name', 'servings', 'photo', 'steps', 'ingredients_json']);
+    sh.appendRow(['id', 'name', 'servings', 'photo', 'steps', 'ingredients_json', 'weight']);
     sh.setFrozenRows(1);
   }
   return sh;
@@ -86,7 +86,7 @@ function doGet(e) {
     const values = sh.getDataRange().getValues();
     const recipes = [];
     for (let i = 1; i < values.length; i++) {
-      const [id, name, servings, photo, steps, ingJson] = values[i];
+      const [id, name, servings, photo, steps, ingJson, weight] = values[i];
       if (!id) continue;
       let ingredients = [];
       try { ingredients = JSON.parse(ingJson || '[]'); } catch (err) {}
@@ -96,7 +96,8 @@ function doGet(e) {
         servings: Number(servings) || 1,
         photo: String(photo || ''),
         steps: String(steps || ''),
-        ingredients: ingredients
+        ingredients: ingredients,
+        weight: (weight === '' || weight == null) ? 5 : Number(weight)
       });
     }
     const cat = readCategories_();
@@ -125,7 +126,8 @@ function doPost(e) {
         r.servings,
         r.photo || '',
         r.steps || '',
-        JSON.stringify(r.ingredients || [])
+        JSON.stringify(r.ingredients || []),
+        (r.weight === '' || r.weight == null) ? 5 : Number(r.weight)
       ];
       if (rowIndex === -1) sh.appendRow(row);
       else sh.getRange(rowIndex, 1, 1, row.length).setValues([row]);
