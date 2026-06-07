@@ -165,25 +165,34 @@ function doPost(e) {
         ingSh.getRange(ingSh.getLastRow() + 1, 1, toAdd.length, 2).setValues(toAdd);
       }
 
-      // zorg dat reeds toegekende categorieën in het Categorieen-tabblad staan
+      // herbouw Categorieen-tabblad: behoud bestaande volgorde, verwijder
+      // categorieën die nergens meer gebruikt worden, voeg nieuwe achteraan toe
       vals = ingSh.getDataRange().getValues();
       const usedCats = [];
       for (let i = 1; i < vals.length; i++) {
         const c = String(vals[i][1] || '').trim();
         if (c && usedCats.indexOf(c) < 0) usedCats.push(c);
       }
+      const usedLower = {};
+      usedCats.forEach(c => { usedLower[c.toLowerCase()] = true; });
+
       const catSh = getCatSheet_();
       const cvals = catSh.getDataRange().getValues();
-      const haveC = {};
-      for (let i = 1; i < cvals.length; i++) {
-        const c = String(cvals[i][0] || '').trim().toLowerCase();
-        if (c) haveC[c] = true;
+      const newOrder = [];
+      const seen = {};
+      for (let i = 1; i < cvals.length; i++) {        // bestaande, nog gebruikte volgorde
+        const c = String(cvals[i][0] || '').trim();
+        const k = c.toLowerCase();
+        if (c && usedLower[k] && !seen[k]) { seen[k] = true; newOrder.push(c); }
       }
-      const addC = [];
-      usedCats.forEach(c => { if (!haveC[c.toLowerCase()]) addC.push([c]); });
-      if (addC.length) {
-        catSh.getRange(catSh.getLastRow() + 1, 1, addC.length, 1).setValues(addC);
-      }
+      usedCats.forEach(c => {                          // nieuwe categorieën achteraan
+        const k = c.toLowerCase();
+        if (!seen[k]) { seen[k] = true; newOrder.push(c); }
+      });
+
+      const lastC = catSh.getLastRow();
+      if (lastC > 1) catSh.getRange(2, 1, lastC - 1, 1).clearContent();
+      if (newOrder.length) catSh.getRange(2, 1, newOrder.length, 1).setValues(newOrder.map(c => [c]));
 
       return json_({ ok: true, added: toAdd.length });
     }

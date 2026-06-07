@@ -292,6 +292,42 @@ function tidy(n){
 function normUnit(u){return (u||'').trim().toLowerCase().replace(/\.$/,'');}
 function normName(n){return (n||'').trim().toLowerCase();}
 
+/* ---------- eenheden: enkelvoud/meervoud + synoniemen → één noemer ---------- */
+const UNIT_CANON = {
+  'stuk':'stuk','stuks':'stuk','st':'stuk',
+  'eetlepel':'eetlepel','eetlepels':'eetlepel','el':'eetlepel',
+  'theelepel':'theelepel','theelepels':'theelepel','tl':'theelepel',
+  'teen':'teen','tenen':'teen','teentje':'teen','teentjes':'teen',
+  'blik':'blik','blikken':'blik','blikje':'blik','blikjes':'blik',
+  'plak':'plak','plakken':'plak','plakje':'plak','plakjes':'plak',
+  'snufje':'snufje','snufjes':'snufje',
+  'bol':'bol','bollen':'bol',
+  'bos':'bos','bossen':'bos','bosje':'bos','bosjes':'bos',
+  'mespunt':'mespunt','mespuntje':'mespunt','mespuntjes':'mespunt',
+  'gram':'g','gr':'g','g':'g',
+  'kilo':'kg','kilogram':'kg','kg':'kg',
+  'liter':'l','l':'l',
+  'milliliter':'ml','ml':'ml'
+};
+const UNIT_PLURAL = {
+  'stuk':'stuks','eetlepel':'eetlepels','theelepel':'theelepels',
+  'teen':'tenen','blik':'blikken','plak':'plakken','snufje':'snufjes',
+  'bol':'bollen','bos':'bossen','mespunt':'mespuntjes'
+};
+/* canonieke (enkelvoud) eenheid voor het optellen/groeperen */
+function canonUnit(u){
+  const n=normUnit(u);
+  if(UNIT_CANON[n]) return UNIT_CANON[n];
+  if(n.length>2 && n.endsWith('s') && UNIT_CANON[n.slice(0,-1)]) return UNIT_CANON[n.slice(0,-1)];
+  return n;
+}
+/* getoonde eenheid: enkelvoud bij 1, anders meervoud (maten zoals g/kg/l blijven gelijk) */
+function displayUnit(canon,qty){
+  if(!canon) return '';
+  if(UNIT_PLURAL[canon]) return qty===1 ? canon : UNIT_PLURAL[canon];
+  return canon;
+}
+
 /* ---------- persistence (local mirror for plan & checks) ---------- */
 function savePlanLocal(){
   localStorage.setItem(LS.plan,JSON.stringify(state.plan));
@@ -361,9 +397,10 @@ function pruneePlan(){
 /* stuur alle ingrediëntnamen naar het Ingredienten-tabblad in de Sheet */
 async function syncIngredients(){
   const names=new Set();
-  state.recipes.forEach(r=>(r.ingredients||[]).forEach(g=>{if(g.name&&g.name.trim())names.add(g.name.trim());}));
-  state.extras.forEach(e=>{if(e.name&&e.name.trim())names.add(e.name.trim());});
-  Object.values(state.dayExtras).forEach(arr=>(arr||[]).forEach(e=>{if(e.name&&e.name.trim())names.add(e.name.trim());}));
+  const addName=n=>{if(n&&n.trim())names.add(n.trim().toLowerCase());};
+  state.recipes.forEach(r=>(r.ingredients||[]).forEach(g=>addName(g.name)));
+  state.extras.forEach(e=>addName(e.name));
+  Object.values(state.dayExtras).forEach(arr=>(arr||[]).forEach(e=>addName(e.name)));
   setSync('busy','Synct…');
   try{
     const j=await apiPost('syncIngredients',{names:[...names]});
@@ -504,8 +541,9 @@ function aggregate(){
   const map=new Map();
   const add=(qty,unit,name)=>{
     const nm=normName(name); if(!nm) return;
-    const key=nm+'|'+normUnit(unit);
-    if(!map.has(key)) map.set(key,{key,name:name.trim(),unit:unit?unit.trim():'',qty:0,hasNum:false,raw:[]});
+    const canon=canonUnit(unit);
+    const key=nm+'|'+canon;
+    if(!map.has(key)) map.set(key,{key,name:nm,unitCanon:canon,qty:0,hasNum:false,raw:[]});
     const e=map.get(key);
     const q=parseFloat(String(qty).replace(',','.'));
     if(isFinite(q)){e.hasNum=true;e.qty+=q;}
@@ -523,7 +561,9 @@ function aggQtyStr(it){
   if(it.hasNum) parts.push(tidy(it.qty));
   it.raw.forEach(r=>parts.push(esc(r)));
   if(!parts.length) return '';
-  return parts.join(' + ')+(it.unit?' '+esc(it.unit):'');
+  const qtyForUnit=(it.hasNum && !it.raw.length)? it.qty : null;   // null → meervoud
+  const u=displayUnit(it.unitCanon,qtyForUnit);
+  return parts.join(' + ')+(u?' '+esc(u):'');
 }
 
 /* ----- BOODSCHAPPEN (per dag, bewerkbaar — niet optellen) ----- */
@@ -537,7 +577,7 @@ function viewShopping(){
     const rowsH = lines.map(ln=>`<div class="edit-item" data-pid="${p.pid}">
         <input class="qin" type="text" value="${esc(ln.qty)}" data-dqty="${p.pid}|${ln.gi}" placeholder="–">
         <span class="unit">${esc(ln.unit)}</span>
-        <div class="nm">${esc(ln.name)}</div>
+        <div class="nm">${esc(ln.name.toLowerCase())}</div>
         <button class="del2" data-drem="${p.pid}|${ln.gi}" title="Verwijderen">${trashSvg()}</button>
       </div>`).join('');
     const exRows = (state.dayExtras[p.pid]||[]).map(e=>`<div class="edit-item" data-dexid="${e.id}">
@@ -594,7 +634,7 @@ function viewStore(){
   });
   state.extras.forEach(e=>{
     if(!e.name||!e.name.trim()) return;
-    items.push({key:'x:'+e.id,name:e.name.trim(),qtyStr:e.qty?esc(e.qty)+(e.unit?' '+esc(e.unit):''):'',cat:catOf(e.name)});
+    items.push({key:'x:'+e.id,name:e.name.trim().toLowerCase(),qtyStr:e.qty?esc(e.qty)+(e.unit?' '+esc(e.unit):''):'',cat:catOf(e.name)});
   });
   items.sort((a,b)=>a.name.localeCompare(b.name,'nl'));   // binnen een groep alfabetisch
 
