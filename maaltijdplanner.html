@@ -142,7 +142,7 @@
   .day.pinned .num{background:var(--accent);}
   .day .dname{font-size:16px;font-weight:600;}
   .day .dmeta{font-size:12px;color:var(--ink-soft);}
-  .day .acts{margin-left:auto;display:flex;gap:4px;align-items:center;}
+  .day .acts{margin-left:auto;display:flex;gap:4px;align-items:center;flex-wrap:wrap;justify-content:flex-end;}
   .servbox{display:flex;align-items:center;gap:4px;}
   .servbox input{width:46px;text-align:center;padding:6px 4px;font-size:14px;}
   .stepnav{margin-top:8px;}
@@ -269,6 +269,7 @@ const state = {
   dayExtras: {},          // {pid:[{id,qty,unit,name}]}  extra regels per dag
   categories: {},         // {ingredient(normName):categorie}  uit de Sheet
   categoryOrder: [],      // [categorie,...]  winkelvolgorde uit de Sheet
+  syncedAt: '',           // updatedAt van de laatst toegepaste gedeelde status
   loaded: false,
   tab: 'recipes'
 };
@@ -328,13 +329,17 @@ function displayUnit(canon,qty){
   return canon;
 }
 
-/* ---------- persistence (local mirror for plan & checks) ---------- */
-function savePlanLocal(){
+/* ---------- persistence (local mirror + gedeelde sync via de Sheet) ---------- */
+function saveLocalOnly(){
   localStorage.setItem(LS.plan,JSON.stringify(state.plan));
   localStorage.setItem(LS.checked,JSON.stringify(state.checked));
   localStorage.setItem(LS.extras,JSON.stringify(state.extras));
   localStorage.setItem(LS.dayedits,JSON.stringify(state.dayEdits));
   localStorage.setItem(LS.dayextras,JSON.stringify(state.dayExtras));
+}
+function savePlanLocal(){
+  saveLocalOnly();
+  schedulePush();         // duw de wijziging (gedebounced) naar de Sheet
 }
 function loadPlanLocal(){
   try{state.plan=JSON.parse(localStorage.getItem(LS.plan))||[];}catch{state.plan=[];}
@@ -346,15 +351,65 @@ function loadPlanLocal(){
   state.plan.forEach(p=>{if(!p.pid)p.pid=uid();});
 }
 
+/* ---------- gedeelde status (weekplan + boodschappen) via de Sheet ---------- */
+function collectState(){
+  return {
+    plan:state.plan, extras:state.extras,
+    dayEdits:state.dayEdits, dayExtras:state.dayExtras, checked:state.checked
+  };
+}
+function applyState(blob){
+  if(!blob) return;
+  state.plan      = Array.isArray(blob.plan)? blob.plan : [];
+  state.extras    = Array.isArray(blob.extras)? blob.extras : [];
+  state.dayEdits  = blob.dayEdits || {};
+  state.dayExtras = blob.dayExtras || {};
+  state.checked   = blob.checked || {};
+  state.plan.forEach(p=>{if(!p.pid)p.pid=uid();});
+  state.syncedAt  = blob.updatedAt || '';
+  saveLocalOnly();        // spiegel naar offline-cache, zonder terug te pushen
+}
+let pushT;
+function schedulePush(){
+  if(!getUrl()) return;
+  clearTimeout(pushT);
+  pushT=setTimeout(pushState,700);
+}
+async function pushState(){
+  if(!getUrl()) return;
+  const blob=collectState();
+  blob.updatedAt=Date.now().toString();
+  state.syncedAt=blob.updatedAt;          // onze eigen schrijf niet terug-toepassen
+  setSync('busy','Synct…');
+  try{ await apiPost('saveState',{state:blob}); setSync('ok','Gesynct'); }
+  catch(e){ setSync('err','Sync fout'); }
+}
+/* poll: haal de gedeelde status op; pas toe als de ander 'm wijzigde */
+async function pollState(){
+  if(!getUrl()) return;
+  const ae=document.activeElement;
+  if(ae && /INPUT|TEXTAREA|SELECT/.test(ae.tagName)) return;  // niet tijdens typen
+  if($('#scrim')) return;                                     // niet met open venster
+  try{
+    const r=await fetch(getUrl()+'?action=state&t='+Date.now(),{method:'GET',cache:'no-store'});
+    const j=await r.json();
+    if(j.ok && j.state && j.state.updatedAt && j.state.updatedAt!==state.syncedAt){
+      applyState(j.state);
+      render();
+      toast('Lijst bijgewerkt');
+    }
+  }catch(e){}
+}
+
 /* ============================================================
    GOOGLE SHEET API (via Apps Script)
    ============================================================ */
 async function apiGet(){
   const url=getUrl(); if(!url) throw new Error('no-url');
-  const r=await fetch(url+'?action=list',{method:'GET'});
+  const r=await fetch(url+'?action=list&t='+Date.now(),{method:'GET',cache:'no-store'});
   const j=await r.json();
   if(!j.ok) throw new Error(j.error||'api');
-  return j;   // {recipes, categories, categoryOrder}
+  return j;   // {recipes, categories, categoryOrder, state}
 }
 async function apiPost(action,payload){
   const url=getUrl(); if(!url) throw new Error('no-url');
@@ -377,6 +432,11 @@ async function refreshRecipes(){
     state.recipes=data.recipes||[];
     state.categories=data.categories||{};
     state.categoryOrder=data.categoryOrder||[];
+    if(data.state && data.state.updatedAt){
+      applyState(data.state);                 // gedeelde status uit de Sheet overnemen
+    }else if(state.plan.length||state.extras.length||Object.keys(state.dayExtras).length){
+      pushState();                            // nog niks in de Sheet: lokale lijst omhoog duwen
+    }
     state.loaded=true;
     pruneePlan();
     setSync('ok','Verbonden');
@@ -472,6 +532,8 @@ function viewPlanner(){
           <input type="number" min="1" value="${p.servings}" data-serv="${i}">
           <button class="iconbtn" data-serv-plus="${i}">+</button>
         </div>
+        <button class="iconbtn" data-up="${i}" title="Omhoog" ${i===0?'disabled style="opacity:.3"':''}>${upSvg()}</button>
+        <button class="iconbtn" data-down="${i}" title="Omlaag" ${i===state.plan.length-1?'disabled style="opacity:.3"':''}>${downSvg()}</button>
         <button class="iconbtn" data-pin="${i}" title="Vastzetten">${p.pinned?pinFilled():pinOutline()}</button>
         <button class="iconbtn" data-swap="${i}" title="Wissel gerecht">${swapSvg()}</button>
         <button class="iconbtn" data-remove="${i}" title="Verwijderen">${trashSvg()}</button>
@@ -491,6 +553,7 @@ function viewPlanner(){
     </div>
     ${state.plan.length?days:`<div class="empty muted">Nog geen plan. Stel een aantal in en kies willekeurig.</div>`}
     ${state.plan.length?`<button class="btn leaf full" id="goShop" style="margin-top:6px">Maak boodschappenlijst →</button>`:''}
+    ${(state.plan.length||Object.keys(state.dayExtras).length||Object.keys(state.dayEdits).length)?`<button class="btn ghost full" id="resetPlan" style="margin-top:8px">Plan & recept-boodschappen resetten</button>`:''}
   `;
 }
 
@@ -606,14 +669,14 @@ function viewShopping(){
     <div class="pagetitle">Bood<em>schappen</em></div>
     <div class="pagesub">Per dag — pas hoeveelheden aan of verwijder regels</div>
 
-    ${state.plan.length ? dayHtml
-      : `<div class="card"><p class="muted" style="margin:0">Nog geen weekplan — kies eerst een plan.</p></div>`}
-
     <div class="cat-h">Extra dingen</div>
     <div class="card">
       ${extraRows||'<p class="muted" style="margin:0 0 4px">Nog niets toegevoegd.</p>'}
       <button class="btn ghost sm" id="addExtra" style="margin-top:10px">＋ Extra ding</button>
     </div>
+
+    ${state.plan.length ? dayHtml
+      : `<div class="card"><p class="muted" style="margin:0">Nog geen weekplan — kies eerst een plan.</p></div>`}
   `;
 }
 
@@ -738,6 +801,9 @@ function bind(){
   // planner
   const roll=$('#rollPlan'); if(roll) roll.onclick=rollPlan;
   const gs=$('#goShop'); if(gs) gs.onclick=()=>{state.tab='shopping';render();};
+  const rp=$('#resetPlan'); if(rp) rp.onclick=resetPlan;
+  $$('[data-up]').forEach(b=>b.onclick=()=>movePlan(+b.dataset.up,-1));
+  $$('[data-down]').forEach(b=>b.onclick=()=>movePlan(+b.dataset.down,1));
   $$('[data-pin]').forEach(b=>b.onclick=()=>{const i=+b.dataset.pin;state.plan[i].pinned=!state.plan[i].pinned;savePlanLocal();render();});
   $$('[data-swap]').forEach(b=>b.onclick=()=>openSwap(+b.dataset.swap));
   $$('[data-remove]').forEach(b=>b.onclick=()=>{const i=+b.dataset.remove;const p=state.plan[i];if(p){delete state.dayEdits[p.pid];delete state.dayExtras[p.pid];}state.plan.splice(i,1);savePlanLocal();render();});
@@ -783,6 +849,24 @@ function pickWeighted(){
   let x=Math.random()*total;
   for(const r of state.recipes){ x-=weightOf(r); if(x<0) return r; }
   return state.recipes[state.recipes.length-1];
+}
+
+/* verschuif een dag in het weekplan (dir -1 = omhoog, +1 = omlaag) */
+function movePlan(i,dir){
+  const j=i+dir;
+  if(j<0||j>=state.plan.length) return;
+  const p=state.plan;
+  [p[i],p[j]]=[p[j],p[i]];   // de pid's verhuizen mee, dus dag-bewerkingen blijven kloppen
+  savePlanLocal();
+  render();
+}
+
+function resetPlan(){
+  if(!confirm('Weekplan en recept-boodschappen resetten? Extra dingen blijven staan. Dit geldt ook voor de andere telefoon.')) return;
+  state.plan=[]; state.dayEdits={}; state.dayExtras={}; state.checked={};
+  // state.extras blijft bewust behouden
+  savePlanLocal();   // wist lokaal + duwt nieuwe status naar de Sheet
+  render();
 }
 
 function rollPlan(){
@@ -939,6 +1023,8 @@ function plugSvg(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentC
 function xSvg(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 6 6 18M6 6l12 12"/></svg>`;}
 function trashSvg(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`;}
 function swapSvg(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m17 2 4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 22l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></svg>`;}
+function upSvg(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m18 15-6-6-6 6"/></svg>`;}
+function downSvg(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m6 9 6 6 6-6"/></svg>`;}
 function pinOutline(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>`;}
 function pinFilled(){return `<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>`;}
 function checkSvg(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 6 9 17l-5-5"/></svg>`;}
@@ -950,6 +1036,8 @@ $$('#nav button').forEach(b=>b.onclick=()=>{state.tab=b.dataset.tab;render();});
 loadPlanLocal();
 render();
 refreshRecipes();
+setInterval(pollState,15000);                                  // elke 15s checken op wijzigingen van de ander
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollState();}); // direct bij terug in beeld
 </script>
 </body>
 </html>
