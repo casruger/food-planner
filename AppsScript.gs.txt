@@ -9,6 +9,13 @@
    - Recepten      : de recepten zelf
    - Ingredienten  : elk ingrediënt + de categorie (winkel-stuk)
    - Categorieen   : de categorieën in winkelvolgorde (bovenste rij = eerst)
+   - Status        : gedeeld weekplan + boodschappen (JSON in cel A1)
+   - AI_config     : eigen AI-prompt (cel B1; categorieën staan in 'Categorieen')
+
+   AI-categorisering (optioneel):
+   - Haal een gratis Gemini API-sleutel op via https://aistudio.google.com/apikey
+   - Apps Script: Projectinstellingen (tandwiel) → Scripteigenschappen →
+     eigenschap toevoegen: naam GEMINI_API_KEY, waarde = je sleutel.
    ============================================================ */
 
 const SHEET_NAME  = 'Recepten';
@@ -70,6 +77,78 @@ function writeState_(obj) {
   getStatusSheet_().getRange(1, 1).setValue(JSON.stringify(obj || {}));
 }
 
+/* voeg categorieën die in Ingredienten gebruikt worden maar nog niet in het
+   Categorieen-tabblad staan achteraan toe (verwijdert niets — jij beheert de lijst). */
+function syncCategoriesFromIngredients_() {
+  const ingSh = getIngSheet_();
+  const vals = ingSh.getDataRange().getValues();
+  const used = [];
+  for (let i = 1; i < vals.length; i++) {
+    const c = String(vals[i][1] || '').trim();
+    if (c && used.indexOf(c) < 0) used.push(c);
+  }
+  const catSh = getCatSheet_();
+  const cvals = catSh.getDataRange().getValues();
+  const have = {};
+  for (let i = 1; i < cvals.length; i++) {
+    const c = String(cvals[i][0] || '').trim();
+    if (c) have[c.toLowerCase()] = true;
+  }
+  const addC = used.filter(c => !have[c.toLowerCase()]).map(c => [c]);
+  if (addC.length) catSh.getRange(catSh.getLastRow() + 1, 1, addC.length, 1).setValues(addC);
+}
+
+/* ---------- AI-config (eigen categorieën + prompt) ---------- */
+const AI_SHEET = 'AI_config';
+const DEFAULT_PROMPT =
+  'Je deelt boodschappen in supermarktcategorieën in.\n' +
+  'Kies voor elk ingrediënt UITSLUITEND de best passende categorie uit deze lijst:\n' +
+  '{categories}\n' +
+  'Antwoord ALLEEN met een JSON-object van de vorm {"ingrediënt":"categorie", ...} ' +
+  'met exact deze ingrediënten als sleutels:\n{ingredienten}';
+
+function getAiSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(AI_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(AI_SHEET);
+    sh.getRange(1, 1).setValue('prompt');
+    sh.getRange(1, 2).setValue('');   // B1 = eigen prompt (leeg = standaard)
+  }
+  return sh;
+}
+function readPrompt_() {
+  const v = getAiSheet_().getRange(1, 2).getValue();
+  return v ? String(v) : '';
+}
+function writePrompt_(p) {
+  getAiSheet_().getRange(1, 2).setValue(p || '');
+}
+
+/* roep Gemini Flash aan; retourneert de tekst (verwacht JSON) */
+function callGemini_(prompt) {
+  const key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!key) throw new Error('Geen GEMINI_API_KEY ingesteld (Projectinstellingen → Scripteigenschappen).');
+  const model = 'gemini-2.5-flash';
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(key);
+  const payload = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { responseMimeType: 'application/json', temperature: 0 }
+  };
+  const res = UrlFetchApp.fetch(url, {
+    method: 'post', contentType: 'application/json',
+    payload: JSON.stringify(payload), muteHttpExceptions: true
+  });
+  const code = res.getResponseCode();
+  const txt = res.getContentText();
+  if (code !== 200) throw new Error('Gemini ' + code + ': ' + txt.slice(0, 300));
+  const j = JSON.parse(txt);
+  const out = j.candidates && j.candidates[0] && j.candidates[0].content &&
+              j.candidates[0].content.parts && j.candidates[0].content.parts[0].text;
+  if (!out) throw new Error('Leeg AI-antwoord');
+  return out;
+}
+
 function json_(obj) {
   return ContentService
     .createTextOutput(JSON.stringify(obj))
@@ -127,7 +206,7 @@ function doGet(e) {
       });
     }
     const cat = readCategories_();
-    return json_({ ok: true, recipes: recipes, categories: cat.categories, categoryOrder: cat.categoryOrder, state: readState_() });
+    return json_({ ok: true, recipes: recipes, categories: cat.categories, categoryOrder: cat.categoryOrder, state: readState_(), aiPrompt: readPrompt_() });
   } catch (err) {
     return json_({ ok: false, error: String(err) });
   }
@@ -165,6 +244,25 @@ function doPost(e) {
       return json_({ ok: true });
     }
 
+    /* eigen categorieënlijst (= winkelvolgorde) + AI-prompt opslaan */
+    if (body.action === 'saveAiConfig') {
+      if (Array.isArray(body.categories)) {
+        const seen = {};
+        const list = [];
+        body.categories.forEach(c => {
+          const t = String(c || '').trim();
+          const k = t.toLowerCase();
+          if (t && !seen[k]) { seen[k] = true; list.push(t); }
+        });
+        const catSh = getCatSheet_();
+        const last = catSh.getLastRow();
+        if (last > 1) catSh.getRange(2, 1, last - 1, 1).clearContent();
+        if (list.length) catSh.getRange(2, 1, list.length, 1).setValues(list.map(c => [c]));
+      }
+      if (typeof body.prompt === 'string') writePrompt_(body.prompt);
+      return json_({ ok: true });
+    }
+
     if (body.action === 'delete') {
       const sh = getSheet_();
       const data = sh.getDataRange().getValues();
@@ -197,37 +295,53 @@ function doPost(e) {
       if (toAdd.length) {
         ingSh.getRange(ingSh.getLastRow() + 1, 1, toAdd.length, 2).setValues(toAdd);
       }
-
-      // herbouw Categorieen-tabblad: behoud bestaande volgorde, verwijder
-      // categorieën die nergens meer gebruikt worden, voeg nieuwe achteraan toe
-      vals = ingSh.getDataRange().getValues();
-      const usedCats = [];
-      for (let i = 1; i < vals.length; i++) {
-        const c = String(vals[i][1] || '').trim();
-        if (c && usedCats.indexOf(c) < 0) usedCats.push(c);
-      }
-      const usedLower = {};
-      usedCats.forEach(c => { usedLower[c.toLowerCase()] = true; });
-
-      const catSh = getCatSheet_();
-      const cvals = catSh.getDataRange().getValues();
-      const newOrder = [];
-      const seen = {};
-      for (let i = 1; i < cvals.length; i++) {        // bestaande, nog gebruikte volgorde
-        const c = String(cvals[i][0] || '').trim();
-        const k = c.toLowerCase();
-        if (c && usedLower[k] && !seen[k]) { seen[k] = true; newOrder.push(c); }
-      }
-      usedCats.forEach(c => {                          // nieuwe categorieën achteraan
-        const k = c.toLowerCase();
-        if (!seen[k]) { seen[k] = true; newOrder.push(c); }
-      });
-
-      const lastC = catSh.getLastRow();
-      if (lastC > 1) catSh.getRange(2, 1, lastC - 1, 1).clearContent();
-      if (newOrder.length) catSh.getRange(2, 1, newOrder.length, 1).setValues(newOrder.map(c => [c]));
-
+      syncCategoriesFromIngredients_();
       return json_({ ok: true, added: toAdd.length });
+    }
+
+    /* laat Gemini alle ingrediënten zonder categorie indelen */
+    if (body.action === 'categorize') {
+      const ingSh = getIngSheet_();
+      const vals = ingSh.getDataRange().getValues();
+      const todo = [];          // {row, name}
+      const existingCats = [];
+      for (let i = 1; i < vals.length; i++) {
+        const name = String(vals[i][0] || '').trim();
+        const cat  = String(vals[i][1] || '').trim();
+        if (!name) continue;
+        if (cat) { if (existingCats.indexOf(cat) < 0) existingCats.push(cat); }
+        else todo.push({ row: i + 1, name: name });
+      }
+      if (!todo.length) return json_({ ok: true, filled: 0 });
+
+      // toegestane categorieën = jouw lijst in het Categorieen-tabblad (anders standaardlijst)
+      const order = readCategories_().categoryOrder;
+      const defaults = ['Groente & fruit', 'Brood & banket', 'Zuivel & eieren', 'Kaas',
+        'Vlees & vis', 'Diepvries', 'Pasta, rijst & granen', 'Conserven & houdbaar',
+        'Sauzen, olie & azijn', 'Kruiden & specerijen', 'Ontbijt & broodbeleg',
+        'Snoep, koek & snacks', 'Dranken', 'Non-food', 'Overig'];
+      const catList = order.length ? order : defaults;
+
+      const tmpl = readPrompt_() || DEFAULT_PROMPT;
+      const prompt = tmpl
+        .replace('{categories}', JSON.stringify(catList))
+        .replace('{ingredienten}', JSON.stringify(todo.map(t => t.name)));
+
+      const out = callGemini_(prompt);
+      let mapping = {};
+      try { mapping = JSON.parse(out); }
+      catch (e) { throw new Error('Onverwacht AI-antwoord: ' + String(out).slice(0, 200)); }
+
+      let filled = 0;
+      todo.forEach(t => {
+        const cat = mapping[t.name];
+        if (cat && String(cat).trim()) {
+          ingSh.getRange(t.row, 2).setValue(String(cat).trim());
+          filled++;
+        }
+      });
+      syncCategoriesFromIngredients_();
+      return json_({ ok: true, filled: filled });
     }
 
     return json_({ ok: false, error: 'unknown action' });

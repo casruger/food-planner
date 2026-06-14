@@ -269,6 +269,7 @@ const state = {
   dayExtras: {},          // {pid:[{id,qty,unit,name}]}  extra regels per dag
   categories: {},         // {ingredient(normName):categorie}  uit de Sheet
   categoryOrder: [],      // [categorie,...]  winkelvolgorde uit de Sheet
+  aiPrompt: '',           // eigen AI-prompt (leeg = standaard)
   syncedAt: '',           // updatedAt van de laatst toegepaste gedeelde status
   loaded: false,
   tab: 'recipes'
@@ -432,6 +433,7 @@ async function refreshRecipes(){
     state.recipes=data.recipes||[];
     state.categories=data.categories||{};
     state.categoryOrder=data.categoryOrder||[];
+    state.aiPrompt=data.aiPrompt||'';
     if(data.state && data.state.updatedAt){
       applyState(data.state);                 // gedeelde status uit de Sheet overnemen
     }else if(state.plan.length||state.extras.length||Object.keys(state.dayExtras).length){
@@ -469,6 +471,31 @@ async function syncIngredients(){
   }catch(e){toast('Fout: '+e.message);setSync('err','Fout');}
 }
 
+/* eigen categorieënlijst (= winkelvolgorde) + AI-prompt opslaan in de Sheet */
+async function saveAiConfig(){
+  const cats=($('#aiCats').value||'').split('\n').map(s=>s.trim()).filter(Boolean);
+  const prompt=($('#aiPromptIn').value||'').trim();
+  setSync('busy','Opslaan…');
+  try{
+    await apiPost('saveAiConfig',{categories:cats,prompt});
+    toast('Opgeslagen');
+    await refreshRecipes();
+  }catch(e){toast('Fout: '+e.message);setSync('err','Fout');}
+}
+
+/* laat de AI (Gemini) alle nog niet ingedeelde ingrediënten een categorie geven */
+async function autoCategorize(){
+  // eerst zorgen dat alle huidige ingrediënten in het tabblad staan
+  await syncIngredients();
+  setSync('busy','AI bezig…');
+  toast('AI deelt ingrediënten in…');
+  try{
+    const j=await apiPost('categorize',{});
+    toast(`Klaar · ${j.filled} ingedeeld`);
+    await refreshRecipes();
+  }catch(e){toast('Fout: '+e.message);setSync('err','Fout');}
+}
+
 /* ============================================================
    RENDER ROUTER
    ============================================================ */
@@ -481,7 +508,8 @@ function render(){
   if(state.tab==='store')     app.innerHTML=viewStore();
   if(state.tab==='settings')  app.innerHTML=viewSettings();
   bind();
-  window.scrollTo(0,0);
+  // alleen bij tab-wissel terug naar boven; in-place updates houden de scrollpositie
+  if(state._lastTab!==state.tab){ window.scrollTo(0,0); state._lastTab=state.tab; }
 }
 
 /* ---------- RECIPES ---------- */
@@ -743,12 +771,25 @@ function viewSettings(){
       <h2 style="font-size:20px;margin-bottom:8px">Winkelindeling</h2>
       <p class="muted" style="font-size:14px;margin:0 0 8px">Sorteer je boodschappen op de volgorde waarin je door de winkel loopt:</p>
       <ol style="padding-left:20px;line-height:1.6;font-size:14px;margin:0 0 12px">
-        <li>Klik op de knop hieronder: alle ingrediënten komen in het tabblad <code>Ingredienten</code>.</li>
-        <li>Vul daar bij elk ingrediënt een <b>categorie</b> in (bv. Groente &amp; fruit, Brood, Zuivel).</li>
+        <li>Klik op <b>Ingrediënten-tabblad bijwerken</b>: alle ingrediënten komen in het tabblad <code>Ingredienten</code>.</li>
+        <li>Klik op <b>Categorieën automatisch invullen</b> — de AI deelt alle lege ingrediënten in. (Of vul ze zelf in.)</li>
         <li>In het tabblad <code>Categorieen</code> zet je de categorieën in de juiste <b>volgorde</b> (bovenste rij = vooraan in de winkel).</li>
         <li>Klik daarna op <b>Verversen</b>.</li>
       </ol>
-      <button class="btn grow" id="syncIng">Ingrediënten-tabblad bijwerken</button>
+      <div class="row">
+        <button class="btn grow" id="syncIng">Ingrediënten-tabblad bijwerken</button>
+      </div>
+      <button class="btn leaf full" id="aiCat" style="margin-top:8px">✨ Categorieën automatisch invullen</button>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">Elk product wordt één keer ingedeeld en onthouden in de Sheet; de volgende keer doet de AI alleen nieuwe producten. Vereist een gratis Gemini API-sleutel (zie installatie-uitleg).</p>
+    </div>
+
+    <div class="card">
+      <h2 style="font-size:20px;margin-bottom:8px">AI-instellingen</h2>
+      <label>Categorieën (één per regel — dit is óók de winkelvolgorde)</label>
+      <textarea id="aiCats" style="min-height:160px" placeholder="Groente &amp; fruit&#10;Brood &amp; banket&#10;Zuivel &amp; eieren&#10;…">${esc(state.categoryOrder.join('\n'))}</textarea>
+      <label style="margin-top:12px">AI-prompt (leeg = standaard). Gebruik <code>{categories}</code> en <code>{ingredienten}</code>.</label>
+      <textarea id="aiPromptIn" style="min-height:140px" placeholder="Laat leeg voor de standaardprompt…">${esc(state.aiPrompt)}</textarea>
+      <button class="btn grow full" id="saveAi" style="margin-top:10px">Categorieën & prompt opslaan</button>
     </div>`:''}
 
     <div class="card setup">
@@ -762,6 +803,12 @@ function viewSettings(){
         <li>Kopieer de <b>web-app URL</b> en plak hem hierboven.</li>
       </ol>
       <p class="muted" style="font-size:13px">De Sheet vult zichzelf met de juiste kolommen bij de eerste keer.</p>
+      <h3 style="font-size:15px;margin:14px 0 4px">AI-categorisering (optioneel)</h3>
+      <ol style="font-size:13px">
+        <li>Haal een gratis sleutel op via <code>aistudio.google.com/apikey</code>.</li>
+        <li>Apps Script → <b>Projectinstellingen</b> (tandwiel) → <b>Scripteigenschappen</b>.</li>
+        <li>Voeg toe: naam <code>GEMINI_API_KEY</code>, waarde = je sleutel. Opslaan.</li>
+      </ol>
     </div>
 
     <div class="card">
@@ -797,6 +844,8 @@ function bind(){
   };
   const rl=$('#reload'); if(rl) rl.onclick=refreshRecipes;
   const si=$('#syncIng'); if(si) si.onclick=syncIngredients;
+  const ai=$('#aiCat'); if(ai) ai.onclick=autoCategorize;
+  const sa=$('#saveAi'); if(sa) sa.onclick=saveAiConfig;
 
   // planner
   const roll=$('#rollPlan'); if(roll) roll.onclick=rollPlan;
@@ -823,16 +872,16 @@ function bind(){
   // boodschappen bewerken — per-dag extra regels
   $$('[data-dayadd]').forEach(b=>b.onclick=()=>{const pid=b.dataset.dayadd;(state.dayExtras[pid]||(state.dayExtras[pid]=[])).push({id:uid(),qty:'',unit:'',name:''});savePlanLocal();render();});
   $$('[data-deqty]').forEach(inp=>inp.onchange=()=>{const e=findDayExtra(inp.dataset.deqty);if(e){e.qty=inp.value.trim();savePlanLocal();}});
-  $$('[data-deunit]').forEach(inp=>inp.onchange=()=>{const e=findDayExtra(inp.dataset.deunit);if(e){e.unit=inp.value.trim();savePlanLocal();}});
-  $$('[data-dename]').forEach(inp=>inp.onchange=()=>{const e=findDayExtra(inp.dataset.dename);if(e){e.name=inp.value.trim();savePlanLocal();}});
+  $$('[data-deunit]').forEach(inp=>inp.onchange=()=>{const e=findDayExtra(inp.dataset.deunit);if(e){e.unit=inp.value.trim().toLowerCase();savePlanLocal();}});
+  $$('[data-dename]').forEach(inp=>inp.onchange=()=>{const e=findDayExtra(inp.dataset.dename);if(e){e.name=inp.value.trim().toLowerCase();savePlanLocal();}});
   $$('[data-derem]').forEach(b=>b.onclick=()=>{removeDayExtra(b.dataset.derem);savePlanLocal();render();});
 
   // boodschappen bewerken — extra dingen
   const ae=$('#addExtra'); if(ae) ae.onclick=()=>{state.extras.push({id:uid(),qty:'',unit:'',name:''});savePlanLocal();render();};
   const findExtra=id=>state.extras.find(e=>e.id===id);
   $$('[data-xqty]').forEach(inp=>inp.onchange=()=>{const e=findExtra(inp.dataset.xqty);if(e){e.qty=inp.value.trim();savePlanLocal();}});
-  $$('[data-xunit]').forEach(inp=>inp.onchange=()=>{const e=findExtra(inp.dataset.xunit);if(e){e.unit=inp.value.trim();savePlanLocal();}});
-  $$('[data-xname]').forEach(inp=>inp.onchange=()=>{const e=findExtra(inp.dataset.xname);if(e){e.name=inp.value.trim();savePlanLocal();}});
+  $$('[data-xunit]').forEach(inp=>inp.onchange=()=>{const e=findExtra(inp.dataset.xunit);if(e){e.unit=inp.value.trim().toLowerCase();savePlanLocal();}});
+  $$('[data-xname]').forEach(inp=>inp.onchange=()=>{const e=findExtra(inp.dataset.xname);if(e){e.name=inp.value.trim().toLowerCase();savePlanLocal();}});
   $$('[data-xrem]').forEach(b=>b.onclick=()=>{state.extras=state.extras.filter(e=>e.id!==b.dataset.xrem);savePlanLocal();render();});
 }
 
@@ -980,8 +1029,8 @@ async function saveRecipe(){
   if(!name){toast('Geef een naam op');return;}
   const ingredients=$$('#ingList .ing-row').map(row=>({
     qty:$('[data-f=qty]',row).value.trim(),
-    unit:$('[data-f=unit]',row).value.trim(),
-    name:$('[data-f=name]',row).value.trim()
+    unit:$('[data-f=unit]',row).value.trim().toLowerCase(),
+    name:$('[data-f=name]',row).value.trim().toLowerCase()
   })).filter(i=>i.name);
   const rec={
     id:$('#edId').value||uid(),
